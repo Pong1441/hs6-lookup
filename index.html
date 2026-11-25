@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HS6 Lookup — ทดลองระบบ</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px 16px;
+      font-family: system-ui, sans-serif;
+      background: #f1f5f9; color: #172338;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 580px; margin: auto; padding: 24px;
+      background: white; border-radius: 18px;
+      box-shadow: 0 8px 28px #17233812;
+    }
+    h1 { margin: 0; color: #087f5b; }
+    p { margin: 12px 0; }
+    label { display: block; margin-top: 20px; font-weight: 600; }
+    input, select, button {
+      width: 100%; padding: 12px; margin-top: 8px;
+      font: inherit; border-radius: 8px;
+      border: 1px solid #bac7d5;
+    }
+    button {
+      background: #087f5b; color: white;
+      border: 0; cursor: pointer;
+    }
+    button:disabled { opacity: .6; cursor: wait; }
+    select:disabled { background: #eef2f6; }
+    #status { padding: 12px; background: #eef6ff; border-radius: 8px; }
+    #result { font-weight: 600; color: #087f5b; }
+    .note { color: #566579; font-size: 14px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>HS6 Lookup</h1>
+  <p>ต้นแบบรายการแบบเลือกต่อเนื่อง</p>
+  <p class="note">
+    ใช้ข้อมูลทดลอง A/B เพื่อทดสอบระบบ ยังไม่ใช่ข้อมูลพิกัดศุลกากรจริง
+  </p>
+
+  <form id="connect">
+    <label for="endpoint">ลิงก์ Webhook ของ Make</label>
+    <input id="endpoint" type="url" required
+      placeholder="https://hook.us2.make.com/..."
+      autocomplete="off">
+    <p class="note">
+      วางลิงก์ต้นฉบับ โดยไม่ต้องต่อ ?parent_id=...
+    </p>
+    <button id="start" type="submit">โหลดกลุ่มสินค้า</button>
+  </form>
+
+  <label for="group">1. เลือกกลุ่มสินค้า</label>
+  <select id="group" disabled>
+    <option value="">กรุณาโหลดกลุ่มสินค้าก่อน</option>
+  </select>
+
+  <label for="item">2. เลือกรายการสินค้า</label>
+  <select id="item" disabled>
+    <option value="">กรุณาเลือกกลุ่มสินค้าก่อน</option>
+  </select>
+
+  <p id="status" role="status" aria-live="polite">
+    พร้อมเชื่อมต่อฐานข้อมูลทดลอง
+  </p>
+  <p id="result"></p>
+</main>
+
+<script>
+  const el = id => document.getElementById(id);
+  const group = el("group");
+  const item = el("item");
+  let endpoint = "";
+  let requestNumber = 0;
+  let controller;
+
+  function reset(select, message) {
+    select.replaceChildren(new Option(message, ""));
+    select.disabled = true;
+  }
+
+  function fill(select, options, message) {
+    reset(select, message);
+    for (const option of options) {
+      select.add(new Option(option.label, option.id));
+    }
+    select.disabled = options.length === 0;
+  }
+
+  async function load(parentId, target, placeholder) {
+    const current = ++requestNumber;
+    controller?.abort();
+    controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    el("status").textContent = "กำลังโหลดข้อมูลจาก Make…";
+
+    try {
+      const url = new URL(endpoint);
+      if (url.protocol !== "https:") {
+        throw new Error("กรุณาใช้ลิงก์ที่ขึ้นต้นด้วย https://");
+      }
+      url.search = "";
+      url.hash = "";
+      url.searchParams.set("parent_id", parentId);
+      url.searchParams.set("hs_version", "DEMO");
+
+      const response = await fetch(url, {
+        signal: controller.signal,
+        credentials: "omit"
+      });
+      const data = await response.json();
+      if (current !== requestNumber) return;
+
+      if (!response.ok || data.status !== "OK") {
+        throw new Error(data.message || "ไม่สามารถดึงข้อมูลได้");
+      }
+      if (!Array.isArray(data.options) ||
+          !data.options.every(o =>
+            typeof o.id === "string" && typeof o.label === "string")) {
+        throw new Error("รูปแบบข้อมูล options ไม่ถูกต้อง");
+      }
+
+      fill(target, data.options, placeholder);
+      el("status").textContent = data.options.length
+        ? "โหลดข้อมูลสำเร็จ กรุณาเลือกจากรายการ"
+        : "ไม่พบตัวเลือกในข้อมูลทดลอง";
+    } catch (error) {
+      if (current !== requestNumber) return;
+      el("status").textContent =
+        error.name === "AbortError"
+          ? "รอนานเกินไป กรุณาลองโหลดใหม่"
+          : error instanceof TypeError
+            ? "เชื่อมต่อไม่ได้ กรุณาตรวจลิงก์ สถานะ Active และการตั้งค่า CORS ใน Make"
+            : error.message;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  el("connect").addEventListener("submit", async event => {
+    event.preventDefault();
+    endpoint = el("endpoint").value.trim();
+    reset(group, "กำลังโหลด…");
+    reset(item, "กรุณาเลือกกลุ่มสินค้าก่อน");
+    el("result").textContent = "";
+    el("start").disabled = true;
+    try {
+      await load("ROOT", group, "เลือกกลุ่มสินค้า");
+    } finally {
+      el("start").disabled = false;
+    }
+  });
+
+  group.addEventListener("change", () => {
+    ++requestNumber;
+    controller?.abort();
+    reset(item, "กรุณาเลือกรายการ");
+    el("result").textContent = "";
+    if (group.value) {
+      load(group.value, item, "เลือกรายการสินค้า");
+    } else {
+      el("status").textContent = "กรุณาเลือกกลุ่มสินค้า";
+    }
+  });
+
+  item.addEventListener("change", () => {
+    el("result").textContent = item.value
+      ? "คุณเลือก: " + item.selectedOptions[0].text +
+        " (" + item.value + ") — สิ้นสุดรายการทดลอง"
+      : "";
+  });
+</script>
+</body>
+</html>
