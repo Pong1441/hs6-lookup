@@ -174,6 +174,20 @@
         " (" + item.value + ") — สิ้นสุดรายการทดลอง"
       : "";
   });
+  // ตั้งค่าลิงก์สำหรับฐานข้อมูลทดลอง
+el("endpoint").value = "วางลิงก์ Webhook ของ Make ที่นี่";
+
+// ซ่อนช่องตั้งค่าจากหน้าผู้ใช้
+el("connect").querySelectorAll("label, input, p")
+  .forEach(element => {
+    element.hidden = true;
+  });
+
+// เก็บปุ่มไว้สำหรับโหลดใหม่หากเชื่อมต่อไม่สำเร็จ
+el("start").textContent = "โหลดข้อมูลใหม่";
+
+// โหลดกลุ่มสินค้าอัตโนมัติเมื่อเปิดหน้าเว็บ
+el("connect").requestSubmit();
 </script>
 </body>
 </html>
